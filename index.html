@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<title>PC Remote</title>
+<style>
+  :root { --bar: 54px; --fg: #e8e8ea; --dim: #8b8b93; --accent: #4f8cff; --panel: #17171b; --line: #2a2a31; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #000; color: var(--fg);
+    font: 15px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden; overscroll-behavior: none; -webkit-user-select: none; user-select: none; }
+  #stage { position: fixed; left: 0; right: 0; top: 0; bottom: calc(var(--bar) + env(safe-area-inset-bottom));
+    overflow: hidden; touch-action: none; }
+  #world { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 0 0; }
+  #screen { position: absolute; pointer-events: none; background: #111; }
+  #msg { position: fixed; left: 50%; top: 42%; transform: translate(-50%, -50%); width: 84%; max-width: 360px; text-align: center;
+    color: var(--dim); font-size: 15px; line-height: 1.5; pointer-events: none; z-index: 4; }
+  #msg b { color: var(--fg); }
+  #bar { position: fixed; left: 0; right: 0; bottom: 0; height: calc(var(--bar) + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom); display: flex; background: #0d0d10; border-top: 1px solid var(--line); }
+  #bar button { flex: 1; background: none; border: 0; color: var(--fg); font-size: 12px; display: flex;
+    flex-direction: column; align-items: center; justify-content: center; gap: 3px; padding: 0; }
+  #bar button .ic { font-size: 19px; line-height: 1; }
+  #bar button.on { color: var(--accent); }
+  .panel { position: fixed; left: 0; right: 0; bottom: calc(var(--bar) + env(safe-area-inset-bottom));
+    background: var(--panel); border-top: 1px solid var(--line); padding: 12px; display: none;
+    max-height: 60%; overflow-y: auto; touch-action: pan-y; }
+  .panel.show { display: block; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+  .grid button, .row button, .seg button { background: #24242b; color: var(--fg); border: 1px solid #30303a;
+    border-radius: 9px; padding: 11px 4px; font-size: 13px; }
+  .grid button:active, .row button:active { background: #33333d; }
+  .grid button.mod.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .label { color: var(--dim); font-size: 12px; margin: 12px 0 6px; text-transform: uppercase; letter-spacing: .05em; }
+  .label:first-child { margin-top: 0; }
+  .row { display: flex; gap: 7px; }
+  .row input { flex: 1; min-width: 0; background: #0f0f12; color: var(--fg); border: 1px solid #30303a;
+    border-radius: 9px; padding: 10px; font-size: 16px; -webkit-user-select: text; user-select: text; }
+  .seg { display: flex; gap: 6px; }
+  .seg button { flex: 1; }
+  .seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  input[type=range] { width: 100%; }
+  #kbd { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0;
+    font-size: 16px; resize: none; }
+  #status { position: fixed; top: calc(8px + env(safe-area-inset-top)); right: 8px; width: 9px; height: 9px;
+    border-radius: 50%; background: #e5484d; z-index: 5; box-shadow: 0 0 0 2px #000; }
+  #status.ok { background: #30a46c; }
+  #toast { position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); background: rgba(20,20,24,.92);
+    padding: 10px 16px; border-radius: 10px; display: none; z-index: 20; pointer-events: none; }
+  #login { position: fixed; inset: 0; background: #0b0b0e; z-index: 30; display: none; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center; }
+  #login.show { display: flex; }
+  #login h1 { font-size: 22px; margin: 0; }
+  #login p { color: var(--dim); margin: 0; max-width: 300px; }
+  #code, #pin { width: 220px; text-align: center; font-size: 28px; letter-spacing: .3em; background: #17171b;
+    color: var(--fg); border: 1px solid #30303a; border-radius: 12px; padding: 12px; -webkit-user-select: text; user-select: text; }
+  #go { background: var(--accent); color: #fff; border: 0; border-radius: 12px; padding: 13px 40px; font-size: 16px; }
+  #err { color: #ff6b6b; min-height: 1.2em; }
+  .help { color: var(--dim); font-size: 13px; line-height: 1.5; }
+  .help b { color: var(--fg); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div id="stage"><div id="world"><video id="screen" autoplay playsinline muted></video></div></div>
+<div id="msg"></div>
+<div id="status"></div>
+<div id="toast"></div>
+<textarea id="kbd" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+
+<!-- Keys panel -->
+<div class="panel" id="keysPanel">
+  <div class="label">Hold modifier for next key</div>
+  <div class="grid">
+    <button class="mod" data-mod="ctrl">Ctrl</button>
+    <button class="mod" data-mod="alt">Alt</button>
+    <button class="mod" data-mod="shift">Shift</button>
+    <button class="mod" data-mod="win">Win</button>
+  </div>
+  <div class="label">Keys</div>
+  <div class="grid">
+    <button data-k="esc">Esc</button><button data-k="tab">Tab</button>
+    <button data-k="enter">Enter</button><button data-k="backspace">⌫</button>
+    <button data-k="home">Home</button><button data-k="up">↑</button>
+    <button data-k="end">End</button><button data-k="delete">Del</button>
+    <button data-k="left">←</button><button data-k="down">↓</button>
+    <button data-k="right">→</button><button data-k="pageup">PgUp</button>
+    <button data-k="win">Start</button><button data-k="printscreen">PrtSc</button>
+    <button data-k="f5">F5</button><button data-k="pagedown">PgDn</button>
+  </div>
+  <div class="label">Shortcuts</div>
+  <div class="grid">
+    <button data-k="c" data-mods="ctrl">Copy</button>
+    <button data-k="v" data-mods="ctrl">Paste</button>
+    <button data-k="x" data-mods="ctrl">Cut</button>
+    <button data-k="z" data-mods="ctrl">Undo</button>
+    <button data-k="a" data-mods="ctrl">Select all</button>
+    <button data-k="s" data-mods="ctrl">Save</button>
+    <button data-k="tab" data-mods="alt">Alt+Tab</button>
+    <button data-k="f4" data-mods="alt">Close win</button>
+    <button data-k="d" data-mods="win">Desktop</button>
+    <button data-k="e" data-mods="win">Files</button>
+    <button data-k="esc" data-mods="ctrl,shift">Task Mgr</button>
+    <button data-k="f11">F11</button>
+  </div>
+  <div class="label">Media</div>
+  <div class="grid">
+    <button data-k="voldown">Vol −</button><button data-k="volup">Vol +</button>
+    <button data-k="mute">Mute</button><button data-k="playpause">⏯</button>
+  </div>
+  <div class="label">Mouse</div>
+  <div class="grid">
+    <button data-click="left">L click</button><button data-click="right">R click</button>
+    <button data-click="middle">M click</button><button data-click="double">Dbl click</button>
+  </div>
+  <div class="label">Send text</div>
+  <div class="row"><input id="textBox" placeholder="Type, then Send" autocomplete="off"><button id="textSend">Send</button></div>
+</div>
+
+<!-- Settings panel -->
+<div class="panel" id="setPanel">
+  <div class="label">Picture quality</div>
+  <div class="seg" id="qSeg"><button data-v="low">Low</button><button data-v="medium">Medium</button><button data-v="high">High</button></div>
+  <div class="label">Frames per second</div>
+  <div class="seg" id="fSeg"><button data-v="15">15</button><button data-v="30">30</button></div>
+  <div class="label">Trackpad speed</div>
+  <input type="range" id="sens" min="0.5" max="4" step="0.1">
+  <div class="label">How to use</div>
+  <div class="help">
+    <b>Touch mode:</b> tap = click · hold = right-click · drag = drag · two fingers = scroll · pinch = zoom (when zoomed in, two fingers move the view)<br>
+    <b>Trackpad mode:</b> slide = move pointer · tap = click · two-finger tap = right-click · two fingers = scroll · double-tap and hold = drag · pinch = zoom<br>
+    Tap the zoom button to reset zoom.
+  </div>
+  <div class="label">&nbsp;</div>
+  <div class="row"><button id="logout" style="flex:1">Forget this PC</button></div>
+</div>
+
+<div id="bar">
+  <button id="bMode"><span class="ic" id="modeIc">👆</span><span id="modeTx">Touch</span></button>
+  <button id="bKbd"><span class="ic">⌨️</span>Keyboard</button>
+  <button id="bKeys"><span class="ic">⌘</span>Keys</button>
+  <button id="bZoom"><span class="ic">🔍</span><span id="zoomTx">1.0×</span></button>
+  <button id="bSet"><span class="ic">⚙️</span>Settings</button>
+  <button id="bFull"><span class="ic">⛶</span>Full</button>
+</div>
+
+<div id="login">
+  <h1>Connect to your PC</h1>
+  <p>Type the code and PIN shown on your PC's PhoneRemote page.</p>
+  <input id="code" placeholder="CODE" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false">
+  <input id="pin" placeholder="PIN" inputmode="numeric" maxlength="4" autocomplete="off">
+  <button id="go">Connect</button>
+  <div id="err"></div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const stage = $('stage'), world = $('world'), img = $('screen'), kbd = $('kbd');
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+    del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+  };
+
+  let mode = store.get('pr_mode', 'touch');
+  let sens = parseFloat(store.get('pr_sens', '1.6'));
+  const mods = new Set();
+
+  // ---------------------------------------------------------- toast / status
+  let toastT;
+  function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block';
+    clearTimeout(toastT); toastT = setTimeout(() => t.style.display = 'none', 1200); }
+  function setOk(ok) { $('status').classList.toggle('ok', ok); }
+  function buzz(ms) { if (navigator.vibrate) navigator.vibrate(ms || 15); }
+
+  // ---------------------------------------------------------- connection
+  let CODE = '', PIN = '', peer = null, conn = null, retryT = null, wantConnected = false;
+  function msg(html) { $('msg').innerHTML = html || ''; }
+  function showLogin(text) {
+    wantConnected = false; clearTimeout(retryT);
+    $('login').classList.add('show'); $('err').textContent = text || '';
+    if (conn) { try { conn.close(); } catch (e) {} conn = null; }
+    img.srcObject = null; setOk(false); msg('');
+  }
+  function login(code, pin) {
+    code = (code || '').trim().toLowerCase(); pin = (pin || '').trim();
+    if (code.length < 6 || pin.length < 4) { showLogin('Enter the 6-letter code and the 4-digit PIN.'); return; }
+    CODE = code; PIN = pin; store.set('pr_code', code); store.set('pr_pin', pin);
+    $('login').classList.remove('show');
+    wantConnected = true;
+    connect();
+  }
+  function ensurePeer(cb) {
+    if (typeof Peer === 'undefined') { msg('Could not load the app. Check your internet connection and reload.'); return; }
+    if (peer && !peer.destroyed && !peer.disconnected && peer.open) { cb(); return; }
+    if (peer && !peer.destroyed) { try { peer.destroy(); } catch (e) {} }
+    peer = new Peer({ debug: 1 });
+    peer.on('open', cb);
+    peer.on('call', call => {
+      call.answer();
+      call.on('stream', s => { img.srcObject = s; img.play().catch(() => {}); msg(''); setOk(true); });
+      call.on('close', () => { if (img.srcObject) { img.srcObject = null; } });
+    });
+    peer.on('error', e => {
+      if (e.type === 'peer-unavailable') msg('<b>Your PC isn\'t ready.</b><br>On the PC, double-click <b>Start PhoneRemote</b> and keep the page it opens.');
+      else if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(e.type)) msg('No internet connection. Retrying…');
+      else console.warn(e.type, e);
+      scheduleRetry();
+    });
+    peer.on('disconnected', () => { if (wantConnected) scheduleRetry(); });
+  }
+  function scheduleRetry() {
+    setOk(false);
+    if (!wantConnected) return;
+    clearTimeout(retryT); retryT = setTimeout(connect, 3000);
+  }
+  function connect() {
+    if (!wantConnected) return;
+    clearTimeout(retryT);
+    if (!img.srcObject) msg('Connecting to your PC…');
+    ensurePeer(() => {
+      if (conn) { try { conn.close(); } catch (e) {} }
+      const c = conn = peer.connect('pcremote-' + CODE, { reliable: true });
+      c.on('open', () => c.send({ type: 'auth', code: CODE, pin: PIN }));
+      c.on('data', d => {
+        if (c !== conn || !d) return;
+        if (d.type === 'ok') {
+          setOk(true); document.title = 'PC Remote · ' + d.host;
+          if (!d.sharing) msg('<b>Connected!</b><br>Now click <b>Start</b> on your PC and choose <b>Entire screen</b>.');
+          else if (!img.srcObject) msg('Connected. Loading the screen…');
+          sendQuality();
+        } else if (d.type === 'denied') {
+          store.del('pr_pin'); showLogin(d.reason || 'Wrong code or PIN.');
+        } else if (d.type === 'waiting') {
+          img.srcObject = null; msg('<b>Screen sharing stopped.</b><br>Click <b>Start</b> on your PC to share it again.');
+        } else if (d.type === 'cursor') {
+          busy = false; clearTimeout(busyT);
+          if (d.error) msg(d.error); else follow(d);
+          flush();
+        }
+      });
+      c.on('close', () => { if (c === conn) { conn = null; busy = false; img.srcObject = null; msg('Connection lost. Reconnecting…'); scheduleRetry(); } });
+      c.on('error', () => { if (c === conn) scheduleRetry(); });
+    });
+  }
+  $('go').onclick = () => login($('code').value, $('pin').value);
+  $('pin').addEventListener('keydown', e => { if (e.key === 'Enter') login($('code').value, $('pin').value); });
+  $('logout').onclick = () => { store.del('pr_code'); store.del('pr_pin'); closePanels(); $('pin').value = ''; $('code').value = ''; showLogin(''); };
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && wantConnected && !(conn && conn.open)) connect();
+  });
+
+  // ---------------------------------------------------------- layout & zoom
+  let natW = 0, natH = 0, base = { x: 0, y: 0, w: 1, h: 1 };
+  let view = { s: 1, tx: 0, ty: 0 };
+  function layout() {
+    const W = stage.clientWidth, H = stage.clientHeight;
+    if (!natW) return;
+    const k = Math.min(W / natW, H / natH);
+    base = { w: natW * k, h: natH * k, x: (W - natW * k) / 2, y: (H - natH * k) / 2 };
+    Object.assign(img.style, { left: base.x + 'px', top: base.y + 'px', width: base.w + 'px', height: base.h + 'px' });
+    clampView(); applyView();
+  }
+  setInterval(() => {
+    if (img.videoWidth && (img.videoWidth !== natW || img.videoHeight !== natH)) {
+      natW = img.videoWidth; natH = img.videoHeight; layout();
+    }
+  }, 400);
+  window.addEventListener('resize', () => setTimeout(layout, 100));
+  function clampView() {
+    const W = stage.clientWidth, H = stage.clientHeight;
+    view.s = Math.min(Math.max(view.s, 1), 6);
+    view.tx = Math.min(0, Math.max(W - W * view.s, view.tx));
+    view.ty = Math.min(0, Math.max(H - H * view.s, view.ty));
+  }
+  function applyView() {
+    world.style.transform = `translate(${view.tx}px, ${view.ty}px) scale(${view.s})`;
+    $('zoomTx').textContent = view.s.toFixed(1) + '×';
+  }
+  $('bZoom').onclick = () => { view = { s: 1, tx: 0, ty: 0 }; applyView(); };
+
+  function norm(cx, cy) {
+    const r = img.getBoundingClientRect();
+    return { x: (cx - r.left) / r.width, y: (cy - r.top) / r.height };
+  }
+  function stagePt(cx, cy) { const r = stage.getBoundingClientRect(); return { x: cx - r.left, y: cy - r.top }; }
+
+  // keep the pointer visible while zoomed in trackpad mode
+  function follow(c) {
+    if (mode !== 'pad' || view.s <= 1 || c.cx == null) return;
+    const W = stage.clientWidth, H = stage.clientHeight;
+    const sx = view.tx + (base.x + c.cx * base.w) * view.s;
+    const sy = view.ty + (base.y + c.cy * base.h) * view.s;
+    const mx = W * 0.15, my = H * 0.15;
+    if (sx < mx) view.tx += mx - sx; else if (sx > W - mx) view.tx -= sx - (W - mx);
+    if (sy < my) view.ty += my - sy; else if (sy > H - my) view.ty -= sy - (H - my);
+    clampView(); applyView();
+  }
+
+  // ---------------------------------------------------------- sending input
+  let queue = [], busy = false, busyT;
+  function send(ev) {
+    const last = queue[queue.length - 1];
+    if (last && last.t === ev.t && (ev.t === 'rel' || ev.t === 'scroll')) { last.dx += ev.dx; last.dy += ev.dy; }
+    else if (last && last.t === 'move' && ev.t === 'move') { last.x = ev.x; last.y = ev.y; }
+    else queue.push(ev);
+    flush();
+  }
+  function flush() {
+    if (busy || !queue.length || !conn || !conn.open) return;
+    busy = true;
+    const batch = queue; queue = [];
+    try { conn.send({ type: 'input', events: batch }); } catch (e) { busy = false; return; }
+    clearTimeout(busyT);
+    busyT = setTimeout(() => { busy = false; flush(); }, 1500);  // don't stall if a reply gets lost
+  }
+  function clickAt(n, button, count) {
+    send({ t: 'move', x: n.x, y: n.y });
+    send({ t: 'click', b: button || 'left', n: count || 1 });
+  }
+
+  // ---------------------------------------------------------- gestures
+  let g = null, lastTap = { t: 0, x: 0, y: 0 };
+  const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  const mid = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
+
+  function onStart(e) {
+    e.preventDefault();
+    closePanels();
+    const ts = e.touches;
+    if (ts.length === 1) {
+      if (g && g.type === 'done') return;
+      const t = ts[0], now = Date.now();
+      g = { type: 'one', sx: t.clientX, sy: t.clientY, lx: t.clientX, ly: t.clientY, t0: now,
+            moved: false, dragging: false, longFired: false, hold: false };
+      if (mode === 'touch') {
+        g.timer = setTimeout(() => {
+          if (g && g.type === 'one' && !g.moved) { g.longFired = true; buzz(25); clickAt(norm(g.sx, g.sy), 'right'); }
+        }, 550);
+      } else if (now - lastTap.t < 320 && Math.hypot(t.clientX - lastTap.x, t.clientY - lastTap.y) < 40) {
+        g.hold = true; buzz(); send({ t: 'down', b: 'left' });
+      }
+    } else if (ts.length === 2) {
+      if (g && g.type === 'one') {
+        clearTimeout(g.timer);
+        if (g.dragging || g.hold) send({ t: 'up', b: 'left' });
+      }
+      const c = stagePt(mid(ts[0], ts[1]).x, mid(ts[0], ts[1]).y);
+      g = { type: 'two', t0: Date.now(), d0: dist(ts[0], ts[1]), c0: c, last: c, s0: view.s, tx0: view.tx, ty0: view.ty,
+            pinch: false, moved: false, ax: 0, ay: 0, cc: mid(ts[0], ts[1]) };
+    } else {
+      if (g && g.type === 'one') clearTimeout(g.timer);
+      g = { type: 'done' };
+    }
+  }
+
+  function onMove(e) {
+    e.preventDefault();
+    if (!g) return;
+    const ts = e.touches;
+    if (g.type === 'one' && ts.length === 1) {
+      const t = ts[0];
+      const dx = t.clientX - g.lx, dy = t.clientY - g.ly;
+      g.lx = t.clientX; g.ly = t.clientY;
+      if (!g.moved && Math.hypot(t.clientX - g.sx, t.clientY - g.sy) > 9) { g.moved = true; clearTimeout(g.timer); }
+      if (mode === 'pad') {
+        const r = img.getBoundingClientRect();
+        if (r.width) send({ t: 'rel', dx: dx / r.width * sens, dy: dy / r.width * sens });
+      } else if (g.moved && !g.longFired) {
+        if (!g.dragging) {
+          g.dragging = true;
+          const n0 = norm(g.sx, g.sy);
+          send({ t: 'move', x: n0.x, y: n0.y }); send({ t: 'down', b: 'left' });
+        }
+        const n = norm(t.clientX, t.clientY);
+        send({ t: 'move', x: n.x, y: n.y });
+      }
+    } else if (g.type === 'two' && ts.length >= 2) {
+      const m = mid(ts[0], ts[1]), c = stagePt(m.x, m.y), d = dist(ts[0], ts[1]);
+      if (!g.pinch && Math.abs(d - g.d0) > 40) { g.pinch = true; g.moved = true; g.c0 = c; g.d0 = d; g.s0 = view.s; g.tx0 = view.tx; g.ty0 = view.ty; }
+      if (Math.hypot(c.x - g.c0.x, c.y - g.c0.y) > 10) g.moved = true;
+      if (g.pinch) {
+        const ns = Math.min(Math.max(g.s0 * d / g.d0, 1), 6);
+        view.tx = c.x - (g.c0.x - g.tx0) * ns / g.s0;
+        view.ty = c.y - (g.c0.y - g.ty0) * ns / g.s0;
+        view.s = ns; clampView(); applyView();
+      } else {
+        const dx = c.x - g.last.x, dy = c.y - g.last.y;
+        if (mode === 'touch' && view.s > 1) {
+          view.tx += dx; view.ty += dy; clampView(); applyView();
+        } else {
+          g.ax += dx; g.ay += dy;
+          const STEP = 22;
+          const ny = Math.trunc(g.ay / STEP), nx = Math.trunc(g.ax / STEP);
+          if (ny || nx) { send({ t: 'scroll', dx: -nx, dy: ny }); g.ay -= ny * STEP; g.ax -= nx * STEP; }
+        }
+      }
+      g.last = c;
+    }
+  }
+
+  function onEnd(e) {
+    e.preventDefault();
+    const left = e.touches.length;
+    if (!g) return;
+    if (g.type === 'one') {
+      clearTimeout(g.timer);
+      const now = Date.now();
+      if (mode === 'touch') {
+        if (g.dragging) send({ t: 'up', b: 'left' });
+        else if (!g.moved && !g.longFired && e.type !== 'touchcancel') clickAt(norm(g.sx, g.sy));
+      } else {
+        if (g.hold) send({ t: 'up', b: 'left' });
+        else if (!g.moved && now - g.t0 < 260 && e.type !== 'touchcancel') {
+          send({ t: 'click', b: 'left' });
+          lastTap = { t: now, x: g.sx, y: g.sy };
+        }
+      }
+      g = null;
+    } else if (g.type === 'two') {
+      if (left < 2) {
+        if (!g.pinch && !g.moved && Date.now() - g.t0 < 300) {
+          buzz(25);
+          if (mode === 'touch') clickAt(norm(g.cc.x, g.cc.y), 'right');
+          else send({ t: 'click', b: 'right' });
+        }
+        g = left ? { type: 'done' } : null;
+      }
+    } else if (left === 0) g = null;
+  }
+
+  stage.addEventListener('touchstart', onStart, { passive: false });
+  stage.addEventListener('touchmove', onMove, { passive: false });
+  stage.addEventListener('touchend', onEnd, { passive: false });
+  stage.addEventListener('touchcancel', onEnd, { passive: false });
+
+  // Mouse support (handy for testing from another computer's browser)
+  let mdown = false;
+  stage.addEventListener('mousedown', e => { mdown = true; const n = norm(e.clientX, e.clientY);
+    send({ t: 'move', x: n.x, y: n.y }); send({ t: 'down', b: ['left', 'middle', 'right'][e.button] || 'left' }); });
+  stage.addEventListener('mousemove', e => { if (mdown) { const n = norm(e.clientX, e.clientY); send({ t: 'move', x: n.x, y: n.y }); } });
+  window.addEventListener('mouseup', e => { if (mdown) { mdown = false; send({ t: 'up', b: ['left', 'middle', 'right'][e.button] || 'left' }); } });
+  stage.addEventListener('contextmenu', e => e.preventDefault());
+  stage.addEventListener('wheel', e => { e.preventDefault(); send({ t: 'scroll', dx: 0, dy: e.deltaY > 0 ? -1 : 1 }); }, { passive: false });
+
+  // ---------------------------------------------------------- mode
+  function setMode(m) {
+    mode = m; store.set('pr_mode', m);
+    $('modeIc').textContent = m === 'touch' ? '👆' : '🖱️';
+    $('modeTx').textContent = m === 'touch' ? 'Touch' : 'Trackpad';
+  }
+  $('bMode').onclick = () => { setMode(mode === 'touch' ? 'pad' : 'touch'); toast(mode === 'touch' ? 'Touch mode' : 'Trackpad mode'); };
+  setMode(mode);
+
+  // ---------------------------------------------------------- keyboard
+  const SENT = '​​';
+  function resetKbd() { kbd.value = SENT; try { kbd.setSelectionRange(SENT.length, SENT.length); } catch (e) {} }
+  function sendKey(k, extra) {
+    const m = [...new Set([...(extra || []), ...mods])];
+    send({ t: 'key', k, mods: m });
+    clearMods();
+  }
+  function sendText(s) {
+    if (!s) return;
+    if (mods.size) { for (const ch of s) sendKey(ch.toLowerCase()); }
+    else send({ t: 'text', s });
+  }
+  let composing = false;
+  function processKbd() {
+    const v = kbd.value;
+    let p = 0;
+    while (p < v.length && p < SENT.length && v[p] === SENT[p]) p++;
+    for (let i = 0; i < SENT.length - p; i++) sendKey('backspace');
+    sendText(v.slice(p).replace(/​/g, '').replace(/\n/g, ''));
+    if (/\n/.test(v.slice(p))) sendKey('enter');
+    resetKbd();
+  }
+  kbd.addEventListener('compositionstart', () => composing = true);
+  kbd.addEventListener('compositionend', () => { composing = false; processKbd(); });
+  kbd.addEventListener('input', e => { if (!composing && !e.isComposing) processKbd(); });
+  kbd.addEventListener('keydown', e => {
+    const map = { Enter: 'enter', Tab: 'tab', Escape: 'esc', ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
+    if (map[e.key]) { e.preventDefault(); sendKey(map[e.key]); }
+  });
+  kbd.addEventListener('blur', () => $('bKbd').classList.remove('on'));
+  $('bKbd').addEventListener('click', () => {
+    if (document.activeElement === kbd) { kbd.blur(); return; }
+    closePanels(); resetKbd(); kbd.focus(); $('bKbd').classList.add('on');
+  });
+
+  // modifiers
+  function clearMods() { mods.clear(); document.querySelectorAll('.mod').forEach(b => b.classList.remove('on')); }
+  document.querySelectorAll('.mod').forEach(b => b.onclick = () => {
+    const m = b.dataset.mod;
+    if (mods.has(m)) mods.delete(m); else mods.add(m);
+    b.classList.toggle('on', mods.has(m));
+  });
+  document.querySelectorAll('[data-k]').forEach(b => b.onclick = () => {
+    buzz(10);
+    sendKey(b.dataset.k, b.dataset.mods ? b.dataset.mods.split(',') : []);
+  });
+  document.querySelectorAll('[data-click]').forEach(b => b.onclick = () => {
+    buzz(10);
+    const c = b.dataset.click;
+    send(c === 'double' ? { t: 'click', b: 'left', n: 2 } : { t: 'click', b: c });
+  });
+  $('textSend').onclick = () => { const v = $('textBox').value; if (v) { send({ t: 'text', s: v }); $('textBox').value = ''; toast('Sent'); } };
+
+  // ---------------------------------------------------------- panels & settings
+  function closePanels() {
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('show'));
+    $('bKeys').classList.remove('on'); $('bSet').classList.remove('on');
+  }
+  function togglePanel(id, btn) {
+    const p = $(id), open = p.classList.contains('show');
+    closePanels(); kbd.blur();
+    if (!open) { p.classList.add('show'); btn.classList.add('on'); }
+  }
+  $('bKeys').onclick = () => togglePanel('keysPanel', $('bKeys'));
+  $('bSet').onclick = () => togglePanel('setPanel', $('bSet'));
+
+  function markSeg(seg, v) { seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v == v)); }
+  let quality = store.get('pr_q', 'medium'), fps = +store.get('pr_fps', '30');
+  markSeg($('qSeg'), quality); markSeg($('fSeg'), fps);
+  function sendQuality() { if (conn && conn.open) conn.send({ type: 'quality', quality, fps }); }
+  $('qSeg').querySelectorAll('button').forEach(b => b.onclick = () => { quality = b.dataset.v; store.set('pr_q', quality); markSeg($('qSeg'), quality); sendQuality(); });
+  $('fSeg').querySelectorAll('button').forEach(b => b.onclick = () => { fps = +b.dataset.v; store.set('pr_fps', fps); markSeg($('fSeg'), fps); sendQuality(); });
+  $('sens').value = sens;
+  $('sens').oninput = () => { sens = parseFloat($('sens').value); store.set('pr_sens', sens); };
+
+  // fullscreen
+  const fsOk = document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen;
+  if (!fsOk) $('bFull').style.display = 'none';
+  $('bFull').onclick = () => {
+    const d = document, el = d.documentElement;
+    if (d.fullscreenElement || d.webkitFullscreenElement) (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+    else (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+  };
+
+  // ---------------------------------------------------------- start
+  const hm = location.hash.match(/c=([a-z0-9]+)&p=(\d+)/i);
+  if (hm) { history.replaceState(null, '', location.pathname); login(hm[1], hm[2]); }
+  else if (store.get('pr_code', '') && store.get('pr_pin', '')) login(store.get('pr_code', ''), store.get('pr_pin', ''));
+  else showLogin('');
+})();
+</script>
+</body>
+</html>

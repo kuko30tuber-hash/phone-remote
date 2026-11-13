@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PhoneRemote</title>
+<style>
+  :root { --bg: #0e0e12; --card: #17171d; --line: #2a2a33; --fg: #ececf1; --dim: #9a9aa6; --accent: #4f8cff; --ok: #30a46c; --warn: #f5a524; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg);
+    font: 15px/1.45 "Segoe UI", system-ui, sans-serif; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 28px 32px; width: 100%; max-width: 760px; }
+  h1 { margin: 0 0 4px; font-size: 24px; }
+  .sub { color: var(--dim); margin: 0 0 22px; }
+  .steps { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  @media (max-width: 680px) { .steps { grid-template-columns: 1fr; } }
+  .step { border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .num { display: inline-flex; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff;
+    align-items: center; justify-content: center; font-weight: 700; font-size: 14px; margin-right: 8px; }
+  .step h2 { font-size: 16px; margin: 0 0 12px; display: flex; align-items: center; }
+  button.big { background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 14px 18px; font-size: 16px;
+    font-weight: 600; width: 100%; cursor: pointer; }
+  button.big:hover { filter: brightness(1.1); }
+  button.small { background: #24242c; color: var(--fg); border: 1px solid #33333d; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+  button.small.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  video#preview { width: 100%; border-radius: 8px; background: #000; display: none; margin-top: 4px; }
+  #qr { background: #fff; padding: 10px; border-radius: 10px; width: 200px; height: 200px; margin: 0 auto 12px; }
+  #qr img, #qr canvas { width: 180px !important; height: 180px !important; }
+  .codes { text-align: center; }
+  .codes .k { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  .codes .v { font: 700 26px/1.2 Consolas, monospace; letter-spacing: .12em; margin-bottom: 8px; }
+  .url { text-align: center; color: var(--dim); font-size: 13px; word-break: break-all; margin-bottom: 10px; }
+  .url b { color: var(--fg); }
+  #status { margin-top: 22px; padding: 12px 14px; border-radius: 10px; background: #1f1f27; display: flex; gap: 10px; align-items: center; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warn); flex: none; }
+  .dot.ok { background: var(--ok); }
+  .dot.bad { background: #e5484d; }
+  .note { color: var(--dim); font-size: 13px; margin-top: 10px; }
+  .warn { color: var(--warn); font-size: 14px; margin-top: 10px; display: none; }
+  #monPick { display: none; margin-top: 10px; font-size: 13px; color: var(--dim); }
+  #monPick button { margin: 4px 4px 0 0; }
+  a { color: var(--accent); cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>PhoneRemote</h1>
+  <p class="sub">Control this PC from your phone. Keep this tab open while you use it.</p>
+
+  <div class="steps">
+    <div class="step">
+      <h2><span class="num">1</span>Share your screen</h2>
+      <button class="big" id="start">Start</button>
+      <video id="preview" muted playsinline autoplay></video>
+      <div class="warn" id="warn"></div>
+      <div id="monPick">Which screen did you share? <span id="monBtns"></span></div>
+      <p class="note" id="shareNote">When the browser asks, choose <b>Entire screen</b>, then click <b>Share</b>.</p>
+    </div>
+    <div class="step">
+      <h2><span class="num">2</span>Connect your phone</h2>
+      <div id="qr"></div>
+      <div class="url">Scan with your phone camera, or open<br><b id="url"></b><br>and type:</div>
+      <div class="codes">
+        <div class="k">Code</div><div class="v" id="code"></div>
+        <div class="k">PIN</div><div class="v" id="pin"></div>
+      </div>
+      <p class="note" style="text-align:center">Your phone remembers this, so next time it connects by itself. <a id="newCode">Make a new code</a></p>
+    </div>
+  </div>
+
+  <div id="status"><span class="dot" id="dot"></span><span id="statusTx">Starting…</span></div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+(() => {
+  const TOKEN = '__TOKEN__';
+  const PHONE_URL = 'https://kuko30tuber-hash.github.io/phone-remote/';
+  const $ = id => document.getElementById(id);
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+  };
+
+  function status(text, kind) {
+    $('statusTx').textContent = text;
+    $('dot').className = 'dot' + (kind ? ' ' + kind : '');
+  }
+
+  if (typeof Peer === 'undefined') {
+    status('Could not load the connection library. Check that this PC is online, then refresh this page.', 'bad');
+    return;
+  }
+
+  // ---------------------------------------------------------- code & PIN
+  const ALPHA = 'abcdefghjkmnpqrstuvwxyz23456789';
+  function rnd(n, chars) { const a = new Uint32Array(n); crypto.getRandomValues(a); return [...a].map(x => chars[x % chars.length]).join(''); }
+  let code = store.get('pr_code'), pin = store.get('pr_pin');
+  if (!code || !pin) newCode(false);
+  function newCode(restart) {
+    code = rnd(6, ALPHA); pin = rnd(4, '0123456789');
+    store.set('pr_code', code); store.set('pr_pin', pin);
+    if (restart) { showCode(); if (phone) phone.close(); if (peer) peer.destroy(); startPeer(); }
+  }
+  function showCode() {
+    $('code').textContent = code.toUpperCase();
+    $('pin').textContent = pin;
+    $('url').textContent = PHONE_URL.replace('https://', '');
+    $('qr').innerHTML = '';
+    try { new QRCode($('qr'), { text: PHONE_URL + '#c=' + code + '&p=' + pin, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.M }); }
+    catch (e) { $('qr').style.display = 'none'; }
+  }
+  $('newCode').onclick = () => newCode(true);
+  showCode();
+
+  // ---------------------------------------------------------- local helper (the PowerShell window)
+  async function api(path, body) {
+    const r = await fetch(path, {
+      method: body ? 'POST' : 'GET',
+      headers: { 'X-Token': TOKEN, 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!r.ok) throw new Error('helper ' + r.status);
+    return r.json();
+  }
+  let helperDown = false;
+  function setHelperDown(down) {
+    if (down === helperDown) return;
+    helperDown = down;
+    if (down) status('The PhoneRemote window on this PC was closed. Start it again, then refresh this page.', 'bad');
+    else refreshStatus();
+  }
+  let info = null;
+  api('/info').then(j => { info = j; }).catch(() => setHelperDown(true));
+
+  // ---------------------------------------------------------- screen sharing
+  let stream = null;
+  $('start').onclick = async () => {
+    $('warn').style.display = 'none';
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: 'monitor', cursor: 'always', frameRate: { ideal: 30, max: 30 } },
+        audio: false, selfBrowserSurface: 'exclude', surfaceSwitching: 'exclude', monitorTypeSurfaces: 'include',
+      });
+    } catch (e) { stream = null; return; }
+    const track = stream.getVideoTracks()[0];
+    const st = track.getSettings();
+    if (st.displaySurface && st.displaySurface !== 'monitor') {
+      stream.getTracks().forEach(t => t.stop()); stream = null;
+      $('warn').textContent = 'Please pick "Entire screen" (not a window or tab), so your phone can control everything.';
+      $('warn').style.display = 'block';
+      return;
+    }
+    try { track.contentHint = 'detail'; } catch (e) {}
+    track.onended = () => {
+      stream = null; $('preview').style.display = 'none'; $('start').style.display = 'block';
+      $('shareNote').style.display = 'block'; $('monPick').style.display = 'none';
+      if (call) { call.close(); call = null; }
+      if (phone && phone.open) phone.send({ type: 'waiting' });
+      refreshStatus();
+    };
+    $('preview').srcObject = stream; $('preview').style.display = 'block';
+    $('start').style.display = 'none'; $('shareNote').style.display = 'none';
+    await pickMonitor(st);
+    if (phone && phone.open) callPhone();
+    refreshStatus();
+  };
+
+  async function pickMonitor(st) {
+    try { if (!info) info = await api('/info'); } catch (e) { setHelperDown(true); return; }
+    const mons = info.monitors || [];
+    if (mons.length <= 1) return;
+    let match = mons.filter(m => m.w === st.width && m.h === st.height);
+    if (!match.length) match = mons.filter(m => Math.abs(m.w / m.h - st.width / st.height) < 0.02);
+    const chosen = match.length ? match[0].i : 1;
+    setMonitor(chosen);
+    if (match.length !== 1) {
+      $('monBtns').innerHTML = mons.map(m => `<button class="small" data-i="${m.i}">Screen ${m.i} (${m.w}×${m.h})</button>`).join('');
+      $('monBtns').querySelectorAll('button').forEach(b => b.onclick = () => setMonitor(+b.dataset.i));
+      $('monPick').style.display = 'block';
+      markMon(chosen);
+    }
+  }
+  function markMon(i) { $('monBtns').querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.i === i)); }
+  function setMonitor(i) { api('/settings', { monitor: i }).catch(() => {}); markMon(i); }
+
+  // ---------------------------------------------------------- connection to the phone
+  let peer = null, phone = null, call = null;
+  let quality = { quality: 'medium', fps: 30 };
+  const fails = { n: 0, t: 0 };
+
+  function refreshStatus() {
+    if (helperDown) return;
+    if (!peer || peer.disconnected) status('Connecting to the internet matchmaker…');
+    else if (phone && phone.open && stream) status('Phone connected. You can control this PC from your phone now.', 'ok');
+    else if (phone && phone.open) status('Phone connected. Click Start above to share your screen.');
+    else if (stream) status('Screen is shared. Waiting for your phone…');
+    else status('Ready. Click Start, then connect your phone.');
+  }
+
+  function startPeer() {
+    peer = new Peer('pcremote-' + code, { debug: 1 });
+    peer.on('open', refreshStatus);
+    peer.on('connection', onConnection);
+    peer.on('disconnected', () => { refreshStatus(); setTimeout(() => { if (peer && !peer.destroyed && peer.disconnected) peer.reconnect(); }, 2000); });
+    peer.on('error', e => {
+      if (e.type === 'unavailable-id') {
+        status('Reconnecting… (this can take a few seconds after a restart)');
+        peer.destroy(); setTimeout(startPeer, 4000);
+      } else if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(e.type)) {
+        status('Can\'t reach the internet matchmaker. Retrying… (is this PC online?)', 'bad');
+        setTimeout(() => { if (peer && !peer.destroyed && peer.disconnected) peer.reconnect(); }, 3000);
+      } else console.warn('peer error', e.type, e);
+    });
+  }
+
+  function onConnection(conn) {
+    let authed = false;
+    const killer = setTimeout(() => { if (!authed) conn.close(); }, 15000);
+    conn.on('data', msg => {
+      if (!msg || typeof msg !== 'object') return;
+      if (!authed) {
+        if (msg.type !== 'auth') return;
+        if (fails.n >= 5 && Date.now() - fails.t < 60000) { conn.send({ type: 'denied', reason: 'Too many wrong PINs. Wait a minute.' }); setTimeout(() => conn.close(), 300); return; }
+        if (String(msg.pin) === pin && String(msg.code).toLowerCase() === code) {
+          authed = true; clearTimeout(killer); fails.n = 0;
+          if (phone && phone !== conn) { try { phone.close(); } catch (e) {} }
+          phone = conn;
+          conn.send({ type: 'ok', host: (info && info.host) || 'PC', sharing: !!stream });
+          if (stream) callPhone();
+          refreshStatus();
+        } else {
+          if (Date.now() - fails.t > 60000) fails.n = 0;
+          fails.n++; fails.t = Date.now();
+          conn.send({ type: 'denied', reason: 'Wrong code or PIN.' });
+          setTimeout(() => conn.close(), 300);
+        }
+        return;
+      }
+      if (conn !== phone) return;
+      if (msg.type === 'input') { inputQueue.push(msg.events || []); pump(); }
+      else if (msg.type === 'quality') { quality = { quality: msg.quality || quality.quality, fps: msg.fps || quality.fps }; applyQuality(); }
+      else if (msg.type === 'restart') { if (stream) callPhone(); }
+    });
+    conn.on('close', () => {
+      clearTimeout(killer);
+      if (conn === phone) { phone = null; if (call) { call.close(); call = null; } refreshStatus(); }
+    });
+  }
+
+  function callPhone() {
+    if (!phone || !stream) return;
+    if (call) { try { call.close(); } catch (e) {} }
+    call = peer.call(phone.peer, stream);
+    const pc = call.peerConnection;
+    if (pc) pc.addEventListener('connectionstatechange', () => { if (pc.connectionState === 'connected') applyQuality(); });
+    setTimeout(applyQuality, 1500);
+  }
+
+  async function applyQuality() {
+    if (!call || !call.peerConnection) return;
+    const sender = call.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+    if (!sender) return;
+    const cfg = { low: [2, 1000000], medium: [1, 2500000], high: [1, 8000000] }[quality.quality] || [1, 2500000];
+    try {
+      const p = sender.getParameters();
+      if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+      p.encodings[0].scaleResolutionDownBy = cfg[0];
+      p.encodings[0].maxBitrate = cfg[1];
+      p.encodings[0].maxFramerate = quality.fps;
+      p.degradationPreference = 'maintain-resolution';
+      await sender.setParameters(p);
+    } catch (e) { console.warn('quality', e); }
+  }
+
+  // ---------------------------------------------------------- forward input to the helper
+  const inputQueue = [];
+  let pumping = false;
+  async function pump() {
+    if (pumping || !inputQueue.length) return;
+    pumping = true;
+    const events = inputQueue.shift();
+    let reply = { type: 'cursor' };
+    try { Object.assign(reply, await api('/input', events)); setHelperDown(false); }
+    catch (e) { setHelperDown(true); reply.error = 'The PhoneRemote window on the PC was closed.'; }
+    if (phone && phone.open) phone.send(reply);
+    pumping = false;
+    pump();
+  }
+
+  startPeer();
+  refreshStatus();
+  window.addEventListener('beforeunload', e => { if (stream) { e.preventDefault(); e.returnValue = ''; } });
+})();
+</script>
+</body>
+</html>
