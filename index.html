@@ -117,7 +117,7 @@
   /* ---------- toast */
   #toast { position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%) scale(.96); z-index: 20; pointer-events: none;
     background: var(--glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid var(--line);
-    padding: 10px 16px; border-radius: 14px; font-size: 14px; opacity: 0; transition: opacity .18s, transform .18s; }
+    padding: 10px 16px; border-radius: 14px; font-size: 14px; max-width: 86vw; text-align: center; opacity: 0; transition: opacity .18s, transform .18s; }
   #toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 
   /* ---------- login */
@@ -141,11 +141,20 @@
   #err { color: var(--bad); min-height: 1.4em; margin-top: 12px; font-size: 14px; }
   .tip { color: var(--dim); font-size: 13px; margin-top: 18px; max-width: 280px; line-height: 1.5; }
 
-  @media (orientation: landscape) and (max-height: 500px) {
-    :root { --bar: 48px; }
+  /* landscape phone: toolbar moves to the right edge so the PC screen gets the full height */
+  @media (orientation: landscape) and (max-height: 520px) {
+    :root { --side: calc(58px + env(safe-area-inset-right)); }
+    #stage { bottom: 0; right: var(--side); transition: right .22s ease; }
+    body.nobar #stage { right: 0; }
+    #bar { top: 0; bottom: 0; left: auto; right: 0; width: var(--side); height: auto; flex-direction: column;
+      padding: var(--st) env(safe-area-inset-right) var(--sb) 0; border-top: 0; border-left: 1px solid var(--line); }
+    body.nobar #bar { transform: translateX(100%); }
+    #bar button { margin: 3px 5px; }
     #bar button span { display: none; }
-    .sheet { max-height: 80%; left: 50%; right: auto; width: min(560px, 100%); transform: translate(-50%, 105%); }
-    .sheet.show { transform: translate(-50%, 0); }
+    .sheet { left: auto; right: var(--side); bottom: 0; top: 0; width: min(420px, 72%); max-height: none;
+      border-radius: 20px 0 0 20px; border-top: 0; border-left: 1px solid var(--line); transform: translateX(110%); }
+    .sheet.show { transform: none; }
+    #showBar { bottom: calc(12px + var(--sb)); }
   }
 </style>
 </head>
@@ -215,6 +224,8 @@
   <div class="handle"></div>
   <div class="stat"><span>Connected to</span><span id="sHost">—</span></div>
   <div class="stat"><span>Response time</span><span id="sPing">—</span></div>
+  <div class="stat"><span>Connection</span><span id="sConn">—</span></div>
+  <div class="stat"><span>Video</span><span id="sVideo">—</span></div>
   <div class="label">Picture quality</div>
   <div class="seg" id="qSeg"><button data-v="low">Fast</button><button data-v="medium">Balanced</button><button data-v="high">Sharp</button></div>
   <div class="label">Smoothness</div>
@@ -223,8 +234,8 @@
   <input type="range" id="sens" min="0.6" max="4" step="0.1">
   <div class="label">Gestures</div>
   <div class="help">
-    <b>Touch mode</b> — tap: click · hold: right-click · drag: drag · 2 fingers: scroll · pinch: zoom (zoomed in, 2 fingers move the view)<br>
-    <b>Trackpad mode</b> — slide: move pointer · tap: click · 2-finger tap: right-click · 2 fingers: scroll · double-tap &amp; hold: drag
+    <b>Touch mode</b> — tap: click · swipe: scroll · hold &amp; release: right-click · hold, then drag: select / move things · pinch: zoom · 2 fingers: move the zoomed view<br>
+    <b>Trackpad mode</b> — slide: move pointer · tap: click · 2-finger tap: right-click · 2-finger swipe: scroll · double-tap, hold &amp; slide: drag
   </div>
   <button class="danger" id="logout">Forget this PC</button>
 </div>
@@ -264,7 +275,7 @@
   };
   const buzz = ms => { if (navigator.vibrate) navigator.vibrate(ms || 12); };
   let toastT;
-  function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 1100); }
+  function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), t.length > 60 ? 5000 : 1100); }
 
   // ---------------------------------------------------------- center message & status pill
   function msg(title, text, spinning) {
@@ -314,10 +325,11 @@
     peer = new Peer({ debug: 1 });
     peer.on('open', cb);
     peer.on('call', call => {
+      curCall = call;
       call.answer();
       call.on('stream', s => {
         lowLatency(call.peerConnection);
-        video.srcObject = s; video.play().catch(() => {});
+        video.srcObject = s; video.play().catch(() => {}); prevIn = null;
         setLive(true); msg(''); pill('ok');
       });
       if (call.peerConnection) call.peerConnection.addEventListener('track', () => lowLatency(call.peerConnection));
@@ -368,6 +380,42 @@
     });
   }
 
+  // ---------------------------------------------------------- live stats (Settings) + slow-path warning
+  let curCall = null, statsT, prevIn = null, relayWarned = false;
+  async function pollStats() {
+    clearTimeout(statsT); statsT = setTimeout(pollStats, 1000);
+    const pc = curCall && curCall.peerConnection;
+    if (!pc || !live) return;
+    let rep; try { rep = await pc.getStats(); } catch (e) { return; }
+    const byId = {}; let inb = null, pair = null;
+    rep.forEach(x => { byId[x.id] = x; if (x.type === 'inbound-rtp' && x.kind === 'video') inb = x; });
+    rep.forEach(x => {
+      if (x.type === 'transport' && x.selectedCandidatePairId) pair = byId[x.selectedCandidatePairId];
+      if (!pair && x.type === 'candidate-pair' && x.nominated && x.state === 'succeeded') pair = x;
+    });
+    if (inb) {
+      let mbps = 0, delay = null;
+      if (prevIn) {
+        mbps = (inb.bytesReceived - prevIn.bytesReceived) * 8 / (inb.timestamp - prevIn.timestamp) / 1000;
+        const n = (inb.jitterBufferEmittedCount || 0) - (prevIn.jitterBufferEmittedCount || 0);
+        if (n > 0) delay = Math.round(((inb.jitterBufferDelay || 0) - (prevIn.jitterBufferDelay || 0)) / n * 1000);
+      }
+      prevIn = inb;
+      $('sVideo').textContent = (inb.frameWidth || '?') + '×' + (inb.frameHeight || '?') + ' · ' + Math.round(inb.framesPerSecond || 0) + ' fps · ' +
+        mbps.toFixed(1) + ' Mbps' + (delay != null ? ' · ' + delay + ' ms buffer' : '');
+    }
+    if (pair) {
+      const a = byId[pair.localCandidateId], b = byId[pair.remoteCandidateId];
+      const relay = (a && a.candidateType === 'relay') || (b && b.candidateType === 'relay');
+      $('sConn').textContent = relay ? 'Through the internet (slower)' : 'Direct over Wi-Fi';
+      if (relay && !relayWarned) {
+        relayWarned = true;
+        toast('Slow path: phone and PC can\'t reach each other directly. Is the phone on the same Wi-Fi (not mobile data / guest Wi-Fi)?');
+      }
+    }
+  }
+  pollStats();
+
   // latency
   let pingT, lastRtt = 0;
   function ping() { clearTimeout(pingT); if (conn && conn.open) conn.send({ type: 'ping', t: performance.now(), rtt: lastRtt }); pingT = setTimeout(ping, 2000); }
@@ -382,7 +430,11 @@
   $('code').addEventListener('input', () => { if ($('code').value.length >= 6) $('pin').focus(); });
   $('pin').addEventListener('keydown', e => { if (e.key === 'Enter') login($('code').value, $('pin').value); });
   $('logout').onclick = () => { store.del('pr_code'); store.del('pr_pin'); closeSheets(); CODE = ''; $('pin').value = ''; $('code').value = ''; showLogin(''); };
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && want && !(conn && conn.open)) connect(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    if (video.srcObject) video.play().catch(() => {});
+    if (want && !(conn && conn.open)) connect();
+  });
 
   // ---------------------------------------------------------- layout & zoom
   let natW = 0, natH = 0, base = { x: 0, y: 0, w: 1, h: 1 }, view = { s: 1, tx: 0, ty: 0 };
@@ -461,27 +513,58 @@
   function moveTo(n) { send({ t: 'move', x: Math.min(1, Math.max(0, n.x)), y: Math.min(1, Math.max(0, n.y)) }); }
   function clickAt(n, button, count) { moveTo(n); send({ t: 'click', b: button || 'left', n: count || 1 }, true); }
 
+  // ---------------------------------------------------------- scrolling (smooth, with momentum)
+  const SCROLL_PX = 22;   // finger pixels per mouse-wheel notch
+  let inertiaRaf = 0;
+  function scrollBy(dx, dy) { if (dx || dy) send({ t: 'scroll', dx: -dx / SCROLL_PX, dy: dy / SCROLL_PX }); }
+  function stopInertia() { cancelAnimationFrame(inertiaRaf); inertiaRaf = 0; }
+  function velocity(samples) {
+    const now = performance.now(), recent = samples.filter(p => now - p.t < 90);
+    if (recent.length < 2) return { x: 0, y: 0 };
+    const a = recent[0], b = recent[recent.length - 1], dt = Math.max(8, b.t - a.t);
+    return { x: (b.x - a.x) / dt, y: (b.y - a.y) / dt };
+  }
+  function startInertia(v) {
+    stopInertia();
+    let vx = v.x, vy = v.y;
+    if (Math.hypot(vx, vy) < 0.3) return;
+    let last = performance.now();
+    const step = now => {
+      const dt = Math.min(40, now - last); last = now;
+      const k = Math.pow(0.9945, dt); vx *= k; vy *= k;
+      scrollBy(vx * dt, vy * dt);
+      inertiaRaf = Math.hypot(vx, vy) > 0.04 ? requestAnimationFrame(step) : 0;
+    };
+    inertiaRaf = requestAnimationFrame(step);
+  }
+  const sample = (arr, x, y) => { arr.push({ t: performance.now(), x, y }); if (arr.length > 12) arr.shift(); };
+
   // ---------------------------------------------------------- gestures
   let mode = store.get('pr_mode', 'touch');
   let sens = parseFloat(store.get('pr_sens', '1.6'));
-  let g = null, lastTap = { t: 0, x: 0, y: 0 };
+  let g = null, lastTap = { t: 0, x: 0, y: 0 }, lastTouchTap = { t: 0, x: 0, y: 0, n: null };
+  const MOVE_SLOP = 10, HOLD_MS = 380;
   const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
   const mid = (a, b) => ({ x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 });
 
   function onStart(e) {
     e.preventDefault();
     closeSheets();
+    stopInertia();
     touching = true;
     const ts = e.touches;
     if (ts.length === 1) {
       if (g && g.type === 'done') return;
       const t = ts[0], now = Date.now();
-      g = { type: 'one', sx: t.clientX, sy: t.clientY, lx: t.clientX, ly: t.clientY, t0: now, moved: false, dragging: false, longFired: false, hold: false };
+      g = { type: 'one', sx: t.clientX, sy: t.clientY, lx: t.clientX, ly: t.clientY, t0: now,
+            moved: false, armed: false, dragging: false, hold: false, samples: [] };
+      sample(g.samples, t.clientX, t.clientY);
       if (mode === 'touch') {
-        moveTo(norm(t.clientX, t.clientY));   // hover follows the finger right away
+        // put the pointer under the finger: hover effects + Windows scrolls whatever is under the pointer
+        moveTo(norm(t.clientX, t.clientY));
         g.timer = setTimeout(() => {
-          if (g && g.type === 'one' && !g.moved) { g.longFired = true; buzz(25); ripple(g.sx, g.sy, true); clickAt(norm(g.sx, g.sy), 'right'); }
-        }, 500);
+          if (g && g.type === 'one' && !g.moved) { g.armed = true; buzz(18); ripple(g.sx, g.sy, true); }
+        }, HOLD_MS);
       } else {
         syncCursor(); drawLocalCursor(true);
         if (now - lastTap.t < 320 && Math.hypot(t.clientX - lastTap.x, t.clientY - lastTap.y) < 40) { g.hold = true; buzz(); send({ t: 'down', b: 'left' }, true); }
@@ -489,9 +572,11 @@
     } else if (ts.length === 2) {
       if (g && g.type === 'one') { clearTimeout(g.timer); if (g.dragging || g.hold) send({ t: 'up', b: 'left' }, true); }
       const m = mid(ts[0], ts[1]), c = stagePt(m.x, m.y);
-      g = { type: 'two', t0: Date.now(), d0: dist(ts[0], ts[1]), c0: c, last: c, s0: view.s, tx0: view.tx, ty0: view.ty, pinch: false, moved: false, ax: 0, ay: 0, cc: m };
+      g = { type: 'two', t0: Date.now(), d0: dist(ts[0], ts[1]), c0: c, last: c, s0: view.s, tx0: view.tx, ty0: view.ty,
+            pinch: false, moved: false, cc: m, samples: [] };
+      sample(g.samples, c.x, c.y);
     } else {
-      if (g && g.type === 'one') clearTimeout(g.timer);
+      if (g && g.type === 'one') { clearTimeout(g.timer); if (g.dragging || g.hold) send({ t: 'up', b: 'left' }, true); }
       g = { type: 'done' };
     }
   }
@@ -503,36 +588,38 @@
     if (g.type === 'one' && ts.length === 1) {
       const t = ts[0], dx = t.clientX - g.lx, dy = t.clientY - g.ly;
       g.lx = t.clientX; g.ly = t.clientY;
-      if (!g.moved && Math.hypot(t.clientX - g.sx, t.clientY - g.sy) > 8) { g.moved = true; clearTimeout(g.timer); }
+      sample(g.samples, t.clientX, t.clientY);
+      if (!g.moved && Math.hypot(t.clientX - g.sx, t.clientY - g.sy) > MOVE_SLOP) { g.moved = true; clearTimeout(g.timer); }
       if (mode === 'pad') {
         const r = video.getBoundingClientRect();
         if (!r.width) return;
-        // simple acceleration: faster swipes travel further
-        const speed = Math.hypot(dx, dy), acc = 1 + Math.min(speed / 18, 1.6);
+        const speed = Math.hypot(dx, dy), acc = 1 + Math.min(speed / 18, 1.6);   // faster swipe = further
         lc.x = Math.min(1, Math.max(0, lc.x + dx / r.width * sens * acc));
         lc.y = Math.min(1, Math.max(0, lc.y + dy / r.height * sens * acc));
         moveTo(lc); drawLocalCursor(true);
-      } else if (g.moved && !g.longFired) {
+      } else if (g.armed) {
+        // held first, then moved: drag (select text, move windows, drag files)
         if (!g.dragging) { g.dragging = true; moveTo(norm(g.sx, g.sy)); send({ t: 'down', b: 'left' }, true); }
         moveTo(norm(t.clientX, t.clientY));
+      } else if (g.moved) {
+        // plain swipe: scroll, like on a phone
+        if (!g.scrolled) { g.scrolled = true; scrollBy(t.clientX - g.sx - dx, t.clientY - g.sy - dy); }
+        scrollBy(dx, dy);
       }
     } else if (g.type === 'two' && ts.length >= 2) {
       const m = mid(ts[0], ts[1]), c = stagePt(m.x, m.y), d = dist(ts[0], ts[1]);
-      if (!g.pinch && Math.abs(d - g.d0) > 36) { g.pinch = true; g.moved = true; g.c0 = c; g.d0 = d; g.s0 = view.s; g.tx0 = view.tx; g.ty0 = view.ty; }
-      if (Math.hypot(c.x - g.c0.x, c.y - g.c0.y) > 10) g.moved = true;
+      sample(g.samples, c.x, c.y);
+      if (!g.pinch && Math.abs(d - g.d0) > 40) { g.pinch = true; g.moved = true; g.c0 = c; g.d0 = d; g.s0 = view.s; g.tx0 = view.tx; g.ty0 = view.ty; }
+      if (Math.hypot(c.x - g.c0.x, c.y - g.c0.y) > MOVE_SLOP) g.moved = true;
       if (g.pinch) {
         const ns = Math.min(Math.max(g.s0 * d / g.d0, 1), 6);
         view.tx = c.x - (g.c0.x - g.tx0) * ns / g.s0;
         view.ty = c.y - (g.c0.y - g.ty0) * ns / g.s0;
         view.s = ns; clampView(); applyView();
-      } else {
+      } else if (g.moved) {
         const dx = c.x - g.last.x, dy = c.y - g.last.y;
         if (mode === 'touch' && view.s > 1) { view.tx += dx; view.ty += dy; clampView(); applyView(); }
-        else {
-          g.ax += dx; g.ay += dy;
-          const STEP = 18, ny = Math.trunc(g.ay / STEP), nx = Math.trunc(g.ax / STEP);
-          if (ny || nx) { send({ t: 'scroll', dx: -nx, dy: ny }); g.ay -= ny * STEP; g.ax -= nx * STEP; }
-        }
+        else scrollBy(dx, dy);
       }
       g.last = c;
     }
@@ -543,12 +630,21 @@
     const left = e.touches.length;
     if (!left) touching = false;
     if (!g) return;
+    const cancel = e.type === 'touchcancel';
     if (g.type === 'one') {
       clearTimeout(g.timer);
-      const now = Date.now(), cancel = e.type === 'touchcancel';
+      const now = Date.now();
       if (mode === 'touch') {
         if (g.dragging) send({ t: 'up', b: 'left' }, true);
-        else if (!g.moved && !g.longFired && !cancel) { ripple(g.sx, g.sy); clickAt(norm(g.sx, g.sy)); }
+        else if (cancel) {}
+        else if (g.armed && !g.moved) { buzz(25); clickAt(norm(g.sx, g.sy), 'right'); }
+        else if (!g.moved) {
+          // a quick second tap near the first one hits exactly the same spot, so double-click works
+          let n = norm(g.sx, g.sy);
+          if (now - lastTouchTap.t < 450 && Math.hypot(g.sx - lastTouchTap.x, g.sy - lastTouchTap.y) < 32 && lastTouchTap.n) n = lastTouchTap.n;
+          ripple(g.sx, g.sy); clickAt(n);
+          lastTouchTap = { t: now, x: g.sx, y: g.sy, n };
+        } else startInertia(velocity(g.samples));
       } else {
         if (g.hold) send({ t: 'up', b: 'left' }, true);
         else if (!g.moved && now - g.t0 < 260 && !cancel) {
@@ -561,11 +657,11 @@
       g = null;
     } else if (g.type === 'two') {
       if (left < 2) {
-        if (!g.pinch && !g.moved && Date.now() - g.t0 < 300) {
+        if (!cancel && !g.pinch && !g.moved && Date.now() - g.t0 < 300) {
           buzz(25);
           if (mode === 'touch') { ripple(g.cc.x, g.cc.y, true); clickAt(norm(g.cc.x, g.cc.y), 'right'); }
           else { const r = video.getBoundingClientRect(); ripple(r.left + lc.x * r.width, r.top + lc.y * r.height, true); send({ t: 'click', b: 'right' }, true); }
-        }
+        } else if (!cancel && !g.pinch && g.moved && !(mode === 'touch' && view.s > 1)) startInertia(velocity(g.samples));
         g = left ? { type: 'done' } : null;
       }
     } else if (!left) g = null;
@@ -688,10 +784,10 @@
   };
 
   function markSeg(seg, v) { seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v == v)); }
-  let quality = store.get('pr_q', 'medium'), fps = +store.get('pr_fps', '30');
+  let quality = store.get('pr_q2', 'high'), fps = +store.get('pr_fps', '30');
   markSeg($('qSeg'), quality); markSeg($('fSeg'), fps);
   function sendQuality() { if (conn && conn.open) conn.send({ type: 'quality', quality, fps }); }
-  $('qSeg').querySelectorAll('button').forEach(b => b.onclick = () => { quality = b.dataset.v; store.set('pr_q', quality); markSeg($('qSeg'), quality); sendQuality(); });
+  $('qSeg').querySelectorAll('button').forEach(b => b.onclick = () => { quality = b.dataset.v; store.set('pr_q2', quality); markSeg($('qSeg'), quality); sendQuality(); });
   $('fSeg').querySelectorAll('button').forEach(b => b.onclick = () => { fps = +b.dataset.v; store.set('pr_fps', fps); markSeg($('fSeg'), fps); sendQuality(); });
   $('sens').value = sens;
   $('sens').oninput = () => { sens = parseFloat($('sens').value); store.set('pr_sens', sens); };

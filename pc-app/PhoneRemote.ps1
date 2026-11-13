@@ -190,9 +190,10 @@ public static class PhoneRemoteServer
         else if (t == "up") MouseButton(S(e, "b", "left"), false);
         else if (t == "scroll")
         {
-            int dy = (int)D(e, "dy", 0), dx = (int)D(e, "dx", 0);
-            if (dy != 0) mouse_event(0x0800, 0, 0, dy * 120, UIntPtr.Zero);
-            if (dx != 0) mouse_event(0x1000, 0, 0, dx * 120, UIntPtr.Zero);
+            // fractional notches = smooth scrolling in modern apps
+            int dy = (int)Math.Round(D(e, "dy", 0) * 120), dx = (int)Math.Round(D(e, "dx", 0) * 120);
+            if (dy != 0) mouse_event(0x0800, 0, 0, dy, UIntPtr.Zero);
+            if (dx != 0) mouse_event(0x1000, 0, 0, dx, UIntPtr.Zero);
         }
         else if (t == "text") TypeText(S(e, "s", ""));
         else if (t == "key")

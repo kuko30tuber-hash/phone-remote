@@ -220,7 +220,7 @@
 
   // ---------------------------------------------------------- connection to the phone
   let peer = null, phone = null, call = null;
-  let quality = { quality: 'medium', fps: 30 };
+  let quality = { quality: 'high', fps: 30 };
   const fails = { n: 0, t: 0 };
 
   function refreshStatus() {
@@ -289,6 +289,12 @@
     if (call) { try { call.close(); } catch (e) {} }
     call = peer.call(phone.peer, stream);
     const pc = call.peerConnection;
+    // Prefer H.264: PCs and phones usually have hardware for it, so it's faster and sharper.
+    try {
+      const rank = c => /h264/i.test(c.mimeType) ? 0 : /vp8/i.test(c.mimeType) ? 1 : /vp9|av1/i.test(c.mimeType) ? 2 : 3;
+      const codecs = RTCRtpReceiver.getCapabilities('video').codecs.slice().sort((a, b) => rank(a) - rank(b));
+      pc.getTransceivers().forEach(t => { if (t.sender && t.sender.track && t.sender.track.kind === 'video') t.setCodecPreferences(codecs); });
+    } catch (e) { console.warn('codec prefs', e); }
     if (pc) pc.addEventListener('connectionstatechange', () => { if (pc.connectionState === 'connected') applyQuality(); });
     setTimeout(applyQuality, 1500);
   }
@@ -297,9 +303,11 @@
     if (!call || !call.peerConnection) return;
     const sender = call.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
     if (!sender) return;
-    // [downscale, max bitrate, what to give up first when the Wi-Fi is busy]
-    const cfg = { low: [2, 1200000, 'maintain-framerate'], medium: [1, 3500000, 'balanced'], high: [1, 10000000, 'maintain-resolution'] }[quality.quality]
-      || [1, 3500000, 'balanced'];
+    // [max width sent to the phone, max bitrate, what to give up first when the Wi-Fi is busy]
+    const cfg = { low: [1280, 3000000, 'maintain-framerate'], medium: [1600, 7000000, 'balanced'], high: [1920, 14000000, 'maintain-resolution'] }[quality.quality]
+      || [1920, 14000000, 'maintain-resolution'];
+    const srcW = (stream && stream.getVideoTracks()[0] && stream.getVideoTracks()[0].getSettings().width) || 1920;
+    cfg[0] = Math.max(1, srcW / cfg[0]);
     try {
       const p = sender.getParameters();
       if (!p.encodings || !p.encodings.length) p.encodings = [{}];
