@@ -5,70 +5,100 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PhoneRemote</title>
 <style>
-  :root { --bg: #0e0e12; --card: #17171d; --line: #2a2a33; --fg: #ececf1; --dim: #9a9aa6; --accent: #4f8cff; --ok: #30a46c; --warn: #f5a524; }
+  :root { --bg: #0b0b0f; --card: #15151b; --card2: #1c1c24; --line: #262630; --fg: #ededf2; --dim: #8e8e9a;
+    --accent: #5b8cff; --accent2: #7c5bff; --ok: #34c77b; --warn: #f5b13d; --bad: #ff5d5d; }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg);
-    font: 15px/1.45 "Segoe UI", system-ui, sans-serif; display: flex; align-items: center; justify-content: center; padding: 24px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 28px 32px; width: 100%; max-width: 760px; }
-  h1 { margin: 0 0 4px; font-size: 24px; }
-  .sub { color: var(--dim); margin: 0 0 22px; }
-  .steps { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
-  @media (max-width: 680px) { .steps { grid-template-columns: 1fr; } }
-  .step { border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
-  .num { display: inline-flex; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff;
-    align-items: center; justify-content: center; font-weight: 700; font-size: 14px; margin-right: 8px; }
-  .step h2 { font-size: 16px; margin: 0 0 12px; display: flex; align-items: center; }
-  button.big { background: var(--accent); color: #fff; border: 0; border-radius: 10px; padding: 14px 18px; font-size: 16px;
-    font-weight: 600; width: 100%; cursor: pointer; }
-  button.big:hover { filter: brightness(1.1); }
-  button.small { background: #24242c; color: var(--fg); border: 1px solid #33333d; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 13px; }
-  button.small.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-  video#preview { width: 100%; border-radius: 8px; background: #000; display: none; margin-top: 4px; }
-  #qr { background: #fff; padding: 10px; border-radius: 10px; width: 200px; height: 200px; margin: 0 auto 12px; }
-  #qr img, #qr canvas { width: 180px !important; height: 180px !important; }
-  .codes { text-align: center; }
-  .codes .k { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
-  .codes .v { font: 700 26px/1.2 Consolas, monospace; letter-spacing: .12em; margin-bottom: 8px; }
-  .url { text-align: center; color: var(--dim); font-size: 13px; word-break: break-all; margin-bottom: 10px; }
-  .url b { color: var(--fg); }
-  #status { margin-top: 22px; padding: 12px 14px; border-radius: 10px; background: #1f1f27; display: flex; gap: 10px; align-items: center; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warn); flex: none; }
-  .dot.ok { background: var(--ok); }
-  .dot.bad { background: #e5484d; }
-  .note { color: var(--dim); font-size: 13px; margin-top: 10px; }
+  body { margin: 0; min-height: 100vh; color: var(--fg); font: 15px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    background: radial-gradient(1200px 600px at 10% -10%, #1b2140 0%, transparent 60%),
+                radial-gradient(900px 500px at 110% 110%, #241a40 0%, transparent 55%), var(--bg);
+    display: flex; align-items: center; justify-content: center; padding: 28px; }
+  .wrap { width: 100%; max-width: 900px; }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+  .logo { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+    background: linear-gradient(135deg, var(--accent), var(--accent2)); box-shadow: 0 8px 24px #5b8cff40; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
+  header p { margin: 0; color: var(--dim); font-size: 14px; }
+  .grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 18px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 22px; }
+  .card h2 { font-size: 15px; margin: 0 0 14px; display: flex; align-items: center; gap: 10px; font-weight: 600; }
+  .num { width: 24px; height: 24px; border-radius: 50%; background: var(--card2); border: 1px solid var(--line);
+    display: grid; place-items: center; font-size: 12px; color: var(--dim); }
+  .done .num { background: var(--ok); border-color: var(--ok); color: #04210f; }
+  .screen { aspect-ratio: 16/9; border-radius: 12px; background: #0d0d12; border: 1px dashed #2f2f3b;
+    display: grid; place-items: center; overflow: hidden; position: relative; }
+  .screen video { width: 100%; height: 100%; object-fit: contain; display: none; }
+  .screen.live { border-style: solid; border-color: #2b2b36; }
+  .screen.live video { display: block; }
+  .live-tag { position: absolute; top: 10px; left: 10px; background: #000a; backdrop-filter: blur(6px); color: #fff;
+    font-size: 12px; padding: 3px 9px; border-radius: 999px; display: none; align-items: center; gap: 6px; }
+  .live-tag::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--bad); animation: pulse 1.6s infinite; }
+  .screen.live .live-tag { display: flex; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .btn { border: 0; border-radius: 12px; padding: 12px 18px; font: 600 15px inherit; font-family: inherit; cursor: pointer; transition: transform .08s, filter .15s; }
+  .btn:active { transform: scale(.98); }
+  .primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; box-shadow: 0 6px 18px #5b8cff40; }
+  .primary:hover { filter: brightness(1.08); }
+  .ghost { background: var(--card2); color: var(--fg); border: 1px solid var(--line); }
+  .row { display: flex; gap: 10px; margin-top: 14px; align-items: center; }
+  .note { color: var(--dim); font-size: 13px; margin: 10px 0 0; }
   .warn { color: var(--warn); font-size: 14px; margin-top: 10px; display: none; }
-  #monPick { display: none; margin-top: 10px; font-size: 13px; color: var(--dim); }
-  #monPick button { margin: 4px 4px 0 0; }
-  a { color: var(--accent); cursor: pointer; }
+  #monPick { display: none; margin-top: 12px; font-size: 13px; color: var(--dim); }
+  #monPick button { margin: 6px 6px 0 0; padding: 6px 12px; font-size: 13px; }
+  #monPick button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .qrbox { display: flex; gap: 18px; align-items: center; }
+  @media (max-width: 420px) { .qrbox { flex-direction: column; } }
+  #qr { background: #fff; padding: 10px; border-radius: 14px; width: 172px; height: 172px; flex: none; }
+  #qr img, #qr canvas { width: 152px !important; height: 152px !important; }
+  .codes .k { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
+  .codes .v { font: 700 24px/1.25 "Cascadia Mono", Consolas, monospace; letter-spacing: .14em; margin-bottom: 8px; }
+  .url { color: var(--dim); font-size: 13px; }
+  .url b { color: var(--fg); font-weight: 600; word-break: break-all; }
+  .status { margin-top: 18px; padding: 14px 16px; border-radius: 14px; background: var(--card); border: 1px solid var(--line);
+    display: flex; gap: 12px; align-items: center; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warn); flex: none; box-shadow: 0 0 0 4px #f5b13d22; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 0 4px #34c77b22; }
+  .dot.bad { background: var(--bad); box-shadow: 0 0 0 4px #ff5d5d22; }
+  .status .grow { flex: 1; }
+  .status .meta { color: var(--dim); font-size: 13px; }
+  a { color: var(--accent); cursor: pointer; text-decoration: none; }
+  a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
-<div class="card">
-  <h1>PhoneRemote</h1>
-  <p class="sub">Control this PC from your phone. Keep this tab open while you use it.</p>
+<div class="wrap">
+  <header>
+    <div class="logo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="14" height="10" rx="2"/><rect x="15" y="9" width="7" height="12" rx="1.5"/><path d="M6 18h6"/></svg></div>
+    <div><h1>PhoneRemote</h1><p>Control this PC from your phone. Keep this tab open while you use it.</p></div>
+  </header>
 
-  <div class="steps">
-    <div class="step">
+  <div class="grid">
+    <div class="card" id="step1">
       <h2><span class="num">1</span>Share your screen</h2>
-      <button class="big" id="start">Start</button>
-      <video id="preview" muted playsinline autoplay></video>
+      <div class="screen" id="screen"><video id="preview" muted playsinline autoplay></video><span class="live-tag">Live on your phone</span>
+        <button class="btn primary" id="start">Start sharing</button></div>
       <div class="warn" id="warn"></div>
       <div id="monPick">Which screen did you share? <span id="monBtns"></span></div>
-      <p class="note" id="shareNote">When the browser asks, choose <b>Entire screen</b>, then click <b>Share</b>.</p>
+      <div class="row" id="stopRow" style="display:none"><button class="btn ghost" id="stop">Stop sharing</button></div>
+      <p class="note" id="shareNote">When the browser asks, choose <b>Entire screen</b> and click <b>Share</b>.</p>
     </div>
-    <div class="step">
+
+    <div class="card" id="step2">
       <h2><span class="num">2</span>Connect your phone</h2>
-      <div id="qr"></div>
-      <div class="url">Scan with your phone camera, or open<br><b id="url"></b><br>and type:</div>
-      <div class="codes">
-        <div class="k">Code</div><div class="v" id="code"></div>
-        <div class="k">PIN</div><div class="v" id="pin"></div>
+      <div class="qrbox">
+        <div id="qr"></div>
+        <div class="codes">
+          <div class="url">Scan with your phone camera, or open <b id="url"></b> and type:</div>
+          <div style="height:10px"></div>
+          <div class="k">Code</div><div class="v" id="code"></div>
+          <div class="k">PIN</div><div class="v" id="pin"></div>
+        </div>
       </div>
-      <p class="note" style="text-align:center">Your phone remembers this, so next time it connects by itself. <a id="newCode">Make a new code</a></p>
+      <p class="note">Your phone remembers this PC and reconnects by itself. <a id="newCode">New code</a></p>
     </div>
   </div>
 
-  <div id="status"><span class="dot" id="dot"></span><span id="statusTx">Starting…</span></div>
+  <div class="status"><span class="dot" id="dot"></span><span class="grow" id="statusTx">Starting…</span><span class="meta" id="meta"></span></div>
 </div>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
@@ -82,11 +112,7 @@
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
   };
-
-  function status(text, kind) {
-    $('statusTx').textContent = text;
-    $('dot').className = 'dot' + (kind ? ' ' + kind : '');
-  }
+  function status(text, kind) { $('statusTx').textContent = text; $('dot').className = 'dot' + (kind ? ' ' + kind : ''); }
 
   if (typeof Peer === 'undefined') {
     status('Could not load the connection library. Check that this PC is online, then refresh this page.', 'bad');
@@ -106,9 +132,9 @@
   function showCode() {
     $('code').textContent = code.toUpperCase();
     $('pin').textContent = pin;
-    $('url').textContent = PHONE_URL.replace('https://', '');
+    $('url').textContent = PHONE_URL.replace('https://', '').replace(/\/$/, '');
     $('qr').innerHTML = '';
-    try { new QRCode($('qr'), { text: PHONE_URL + '#c=' + code + '&p=' + pin, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.M }); }
+    try { new QRCode($('qr'), { text: PHONE_URL + '#c=' + code + '&p=' + pin, width: 152, height: 152, correctLevel: QRCode.CorrectLevel.M }); }
     catch (e) { $('qr').style.display = 'none'; }
   }
   $('newCode').onclick = () => newCode(true);
@@ -140,7 +166,7 @@
     $('warn').style.display = 'none';
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { displaySurface: 'monitor', cursor: 'always', frameRate: { ideal: 30, max: 30 } },
+        video: { displaySurface: 'monitor', cursor: 'always', frameRate: { ideal: 60, max: 60 } },
         audio: false, selfBrowserSurface: 'exclude', surfaceSwitching: 'exclude', monitorTypeSurfaces: 'include',
       });
     } catch (e) { stream = null; return; }
@@ -153,19 +179,26 @@
       return;
     }
     try { track.contentHint = 'detail'; } catch (e) {}
-    track.onended = () => {
-      stream = null; $('preview').style.display = 'none'; $('start').style.display = 'block';
-      $('shareNote').style.display = 'block'; $('monPick').style.display = 'none';
-      if (call) { call.close(); call = null; }
-      if (phone && phone.open) phone.send({ type: 'waiting' });
-      refreshStatus();
-    };
-    $('preview').srcObject = stream; $('preview').style.display = 'block';
-    $('start').style.display = 'none'; $('shareNote').style.display = 'none';
+    track.onended = stopSharing;
+    $('preview').srcObject = stream;
+    $('screen').classList.add('live'); $('start').style.display = 'none';
+    $('shareNote').style.display = 'none'; $('stopRow').style.display = 'flex';
+    $('step1').classList.add('done');
     await pickMonitor(st);
     if (phone && phone.open) callPhone();
     refreshStatus();
   };
+  function stopSharing() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null;
+    $('screen').classList.remove('live'); $('start').style.display = 'block';
+    $('shareNote').style.display = 'block'; $('stopRow').style.display = 'none'; $('monPick').style.display = 'none';
+    $('step1').classList.remove('done');
+    if (call) { call.close(); call = null; }
+    if (phone && phone.open) phone.send({ type: 'waiting' });
+    refreshStatus();
+  }
+  $('stop').onclick = stopSharing;
 
   async function pickMonitor(st) {
     try { if (!info) info = await api('/info'); } catch (e) { setHelperDown(true); return; }
@@ -176,7 +209,7 @@
     const chosen = match.length ? match[0].i : 1;
     setMonitor(chosen);
     if (match.length !== 1) {
-      $('monBtns').innerHTML = mons.map(m => `<button class="small" data-i="${m.i}">Screen ${m.i} (${m.w}×${m.h})</button>`).join('');
+      $('monBtns').innerHTML = mons.map(m => `<button class="btn ghost" data-i="${m.i}">Screen ${m.i} · ${m.w}×${m.h}</button>`).join('');
       $('monBtns').querySelectorAll('button').forEach(b => b.onclick = () => setMonitor(+b.dataset.i));
       $('monPick').style.display = 'block';
       markMon(chosen);
@@ -192,24 +225,25 @@
 
   function refreshStatus() {
     if (helperDown) return;
-    if (!peer || peer.disconnected) status('Connecting to the internet matchmaker…');
-    else if (phone && phone.open && stream) status('Phone connected. You can control this PC from your phone now.', 'ok');
-    else if (phone && phone.open) status('Phone connected. Click Start above to share your screen.');
+    $('step2').classList.toggle('done', !!(phone && phone.open));
+    if (!peer || peer.disconnected) status('Connecting…');
+    else if (phone && phone.open && stream) status('Phone connected — you can control this PC from your phone.', 'ok');
+    else if (phone && phone.open) status('Phone connected. Click "Start sharing" to show your screen.');
     else if (stream) status('Screen is shared. Waiting for your phone…');
-    else status('Ready. Click Start, then connect your phone.');
+    else status('Ready. Click "Start sharing", then connect your phone.');
   }
 
   function startPeer() {
     peer = new Peer('pcremote-' + code, { debug: 1 });
     peer.on('open', refreshStatus);
     peer.on('connection', onConnection);
-    peer.on('disconnected', () => { refreshStatus(); setTimeout(() => { if (peer && !peer.destroyed && peer.disconnected) peer.reconnect(); }, 2000); });
+    peer.on('disconnected', () => { refreshStatus(); setTimeout(() => { if (peer && !peer.destroyed && peer.disconnected) peer.reconnect(); }, 1500); });
     peer.on('error', e => {
       if (e.type === 'unavailable-id') {
-        status('Reconnecting… (this can take a few seconds after a restart)');
-        peer.destroy(); setTimeout(startPeer, 4000);
+        status('Reconnecting… (can take a few seconds after a restart)');
+        peer.destroy(); setTimeout(startPeer, 3000);
       } else if (['network', 'server-error', 'socket-error', 'socket-closed'].includes(e.type)) {
-        status('Can\'t reach the internet matchmaker. Retrying… (is this PC online?)', 'bad');
+        status('Can\'t reach the internet. Retrying…', 'bad');
         setTimeout(() => { if (peer && !peer.destroyed && peer.disconnected) peer.reconnect(); }, 3000);
       } else console.warn('peer error', e.type, e);
     });
@@ -239,13 +273,14 @@
         return;
       }
       if (conn !== phone) return;
-      if (msg.type === 'input') { inputQueue.push(msg.events || []); pump(); }
+      if (msg.type === 'input') { for (const ev of (msg.events || [])) inputQueue.push(ev); pump(); }
+      else if (msg.type === 'ping') { conn.send({ type: 'pong', t: msg.t }); if (msg.rtt) $('meta').textContent = Math.round(msg.rtt) + ' ms'; }
       else if (msg.type === 'quality') { quality = { quality: msg.quality || quality.quality, fps: msg.fps || quality.fps }; applyQuality(); }
       else if (msg.type === 'restart') { if (stream) callPhone(); }
     });
     conn.on('close', () => {
       clearTimeout(killer);
-      if (conn === phone) { phone = null; if (call) { call.close(); call = null; } refreshStatus(); }
+      if (conn === phone) { phone = null; $('meta').textContent = ''; if (call) { call.close(); call = null; } refreshStatus(); }
     });
   }
 
@@ -262,31 +297,35 @@
     if (!call || !call.peerConnection) return;
     const sender = call.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
     if (!sender) return;
-    const cfg = { low: [2, 1000000], medium: [1, 2500000], high: [1, 8000000] }[quality.quality] || [1, 2500000];
+    // [downscale, max bitrate, what to give up first when the Wi-Fi is busy]
+    const cfg = { low: [2, 1200000, 'maintain-framerate'], medium: [1, 3500000, 'balanced'], high: [1, 10000000, 'maintain-resolution'] }[quality.quality]
+      || [1, 3500000, 'balanced'];
     try {
       const p = sender.getParameters();
       if (!p.encodings || !p.encodings.length) p.encodings = [{}];
       p.encodings[0].scaleResolutionDownBy = cfg[0];
       p.encodings[0].maxBitrate = cfg[1];
       p.encodings[0].maxFramerate = quality.fps;
-      p.degradationPreference = 'maintain-resolution';
+      p.degradationPreference = cfg[2];
       await sender.setParameters(p);
     } catch (e) { console.warn('quality', e); }
   }
 
   // ---------------------------------------------------------- forward input to the helper
-  const inputQueue = [];
-  let pumping = false;
+  // Everything that arrived while the previous request was running goes out in one request.
+  let inputQueue = [], pumping = false;
   async function pump() {
     if (pumping || !inputQueue.length) return;
     pumping = true;
-    const events = inputQueue.shift();
-    let reply = { type: 'cursor' };
-    try { Object.assign(reply, await api('/input', events)); setHelperDown(false); }
-    catch (e) { setHelperDown(true); reply.error = 'The PhoneRemote window on the PC was closed.'; }
-    if (phone && phone.open) phone.send(reply);
+    const events = inputQueue; inputQueue = [];
+    let reply = null;
+    for (let attempt = 0; attempt < 2 && !reply; attempt++) {
+      try { reply = await api('/input', events); } catch (e) { reply = null; }
+    }
+    setHelperDown(!reply);
+    if (phone && phone.open) phone.send(reply ? Object.assign({ type: 'cursor' }, reply) : { type: 'cursor', error: 'The PhoneRemote window on the PC was closed.' });
     pumping = false;
-    pump();
+    if (inputQueue.length) pump();
   }
 
   startPeer();

@@ -20,8 +20,6 @@ $source = @'
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
 using System.Net;
@@ -82,19 +80,6 @@ public static class PhoneRemoteServer
         Thread acc = new Thread(AcceptLoop);
         acc.IsBackground = true;
         acc.Start(listener);
-    }
-
-    public static string LanIp()
-    {
-        try
-        {
-            using (Socket s = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp))
-            {
-                s.Connect(new IPEndPoint(IPAddress.Parse("8.8.8.8"), 53)); // nothing is actually sent
-                return ((IPEndPoint)s.LocalEndPoint).Address.ToString();
-            }
-        }
-        catch { return "127.0.0.1"; }
     }
 
     static Rectangle CurMon()
@@ -263,58 +248,72 @@ public static class PhoneRemoteServer
         return -1;
     }
 
+    // One thread per browser connection; requests are served in a loop (HTTP keep-alive)
+    // so input doesn't pay for a new TCP connection every time.
     static void Handle(object o)
     {
         TcpClient c = (TcpClient)o;
         try
         {
             c.NoDelay = true;
-            c.ReceiveTimeout = 15000;
+            c.ReceiveTimeout = 120000;
             c.SendTimeout = 15000;
             NetworkStream ns = c.GetStream();
-
-            MemoryStream buf = new MemoryStream();
+            byte[] pending = new byte[0];
             byte[] tmp = new byte[8192];
-            int hdrEnd = -1;
-            while (hdrEnd < 0)
+            while (true)
             {
-                int n = ns.Read(tmp, 0, tmp.Length);
-                if (n <= 0) return;
-                buf.Write(tmp, 0, n);
-                if (buf.Length > 65536) return;
-                hdrEnd = FindHeaderEnd(buf.GetBuffer(), (int)buf.Length);
-            }
-            byte[] all = buf.ToArray();
-            string head = Encoding.ASCII.GetString(all, 0, hdrEnd);
-            string[] lines = head.Split(new string[] { "\r\n" }, StringSplitOptions.None);
-            string[] rl = lines[0].Split(' ');
-            if (rl.Length < 2) return;
-            string method = rl[0].ToUpperInvariant(), target = rl[1];
+                MemoryStream buf = new MemoryStream();
+                buf.Write(pending, 0, pending.Length);
+                int hdrEnd = FindHeaderEnd(buf.GetBuffer(), (int)buf.Length);
+                while (hdrEnd < 0)
+                {
+                    int n = ns.Read(tmp, 0, tmp.Length);
+                    if (n <= 0) return;
+                    buf.Write(tmp, 0, n);
+                    if (buf.Length > 65536) return;
+                    hdrEnd = FindHeaderEnd(buf.GetBuffer(), (int)buf.Length);
+                }
+                byte[] all = buf.ToArray();
+                string head = Encoding.ASCII.GetString(all, 0, hdrEnd);
+                string[] lines = head.Split(new string[] { "\r\n" }, StringSplitOptions.None);
+                string[] rl = lines[0].Split(' ');
+                if (rl.Length < 2) return;
+                string method = rl[0].ToUpperInvariant(), target = rl[1];
 
-            Dictionary<string, string> h = new Dictionary<string, string>();
-            for (int i = 1; i < lines.Length; i++)
-            {
-                int p = lines[i].IndexOf(':');
-                if (p > 0) h[lines[i].Substring(0, p).Trim().ToLowerInvariant()] = lines[i].Substring(p + 1).Trim();
-            }
-            int len = 0; string cl;
-            if (h.TryGetValue("content-length", out cl)) int.TryParse(cl, out len);
-            if (len < 0 || len > 1000000) return;
-            byte[] body = new byte[len];
-            int have = Math.Min(len, all.Length - (hdrEnd + 4));
-            Array.Copy(all, hdrEnd + 4, body, 0, have);
-            while (have < len)
-            {
-                int n = ns.Read(body, have, len - have);
-                if (n <= 0) return;
-                have += n;
-            }
+                Dictionary<string, string> h = new Dictionary<string, string>();
+                for (int i = 1; i < lines.Length; i++)
+                {
+                    int p = lines[i].IndexOf(':');
+                    if (p > 0) h[lines[i].Substring(0, p).Trim().ToLowerInvariant()] = lines[i].Substring(p + 1).Trim();
+                }
+                int len = 0; string cl;
+                if (h.TryGetValue("content-length", out cl)) int.TryParse(cl, out len);
+                if (len < 0 || len > 1000000) return;
+                int bodyStart = hdrEnd + 4;
+                int avail = all.Length - bodyStart;
+                byte[] body = new byte[len];
+                int have = Math.Min(len, avail);
+                Array.Copy(all, bodyStart, body, 0, have);
+                while (have < len)
+                {
+                    int n = ns.Read(body, have, len - have);
+                    if (n <= 0) return;
+                    have += n;
+                }
+                int extra = avail - Math.Min(len, avail);
+                pending = new byte[extra];
+                if (extra > 0) Array.Copy(all, bodyStart + len, pending, 0, extra);
 
-            string path = target, query = "";
-            int qi = target.IndexOf('?');
-            if (qi >= 0) { path = target.Substring(0, qi); query = target.Substring(qi + 1); }
-            string ip = ((IPEndPoint)c.Client.RemoteEndPoint).Address.ToString();
-            Route(ns, method, path, ParseQuery(query), h, body, ip);
+                string path = target, query = "";
+                int qi = target.IndexOf('?');
+                if (qi >= 0) { path = target.Substring(0, qi); query = target.Substring(qi + 1); }
+                string ip = ((IPEndPoint)c.Client.RemoteEndPoint).Address.ToString();
+                Route(ns, method, path, ParseQuery(query), h, body, ip);
+
+                string conn;
+                if (h.TryGetValue("connection", out conn) && conn.ToLowerInvariant().Contains("close")) return;
+            }
         }
         catch { }
         finally { try { c.Close(); } catch { } }
@@ -338,7 +337,7 @@ public static class PhoneRemoteServer
     {
         string status = code == 200 ? "OK" : code == 401 ? "Unauthorized" : code == 404 ? "Not Found" : "Bad Request";
         string head = "HTTP/1.1 " + code + " " + status + "\r\nContent-Type: " + ctype +
-                      "\r\nContent-Length: " + body.Length + "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
+                      "\r\nContent-Length: " + body.Length + "\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n\r\n";
         byte[] hb = Encoding.ASCII.GetBytes(head);
         ns.Write(hb, 0, hb.Length);
         ns.Write(body, 0, body.Length);
