@@ -76,7 +76,7 @@ public static class PhoneRemoteServer
         }
         mons = list.ToArray();
 
-        TcpListener listener = new TcpListener(IPAddress.Loopback, port)   // this PC only: no firewall prompt;
+        TcpListener listener = new TcpListener(IPAddress.Loopback, port);   // this PC only: no firewall prompt
         listener.Start();   // throws here if the port is taken
 
         Thread acc = new Thread(AcceptLoop);
@@ -585,6 +585,7 @@ try {
 } catch {
     Write-Host ""
     Write-Host "PhoneRemote seems to be running already (port $Port is busy)." -ForegroundColor Yellow
+    Write-Host ("  (" + $_.Exception.InnerException.Message + ")") -ForegroundColor DarkGray
     Write-Host "Opening it in your browser..."
     Start-Process "http://localhost:$Port/"
     Start-Sleep -Seconds 3
