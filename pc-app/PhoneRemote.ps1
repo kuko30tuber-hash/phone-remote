@@ -311,9 +311,7 @@ public static class PhoneRemoteServer
                 if (qi >= 0) { path = target.Substring(0, qi); query = target.Substring(qi + 1); }
                 string ip = ((IPEndPoint)c.Client.RemoteEndPoint).Address.ToString();
                 Route(ns, method, path, ParseQuery(query), h, body, ip);
-
-                string conn;
-                if (h.TryGetValue("connection", out conn) && conn.ToLowerInvariant().Contains("close")) return;
+                return;   // one request per connection: simplest and most reliable
             }
         }
         catch { }
@@ -338,7 +336,7 @@ public static class PhoneRemoteServer
     {
         string status = code == 200 ? "OK" : code == 401 ? "Unauthorized" : code == 404 ? "Not Found" : "Bad Request";
         string head = "HTTP/1.1 " + code + " " + status + "\r\nContent-Type: " + ctype +
-                      "\r\nContent-Length: " + body.Length + "\r\nCache-Control: no-store\r\nConnection: keep-alive\r\n\r\n";
+                      "\r\nContent-Length: " + body.Length + "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
         byte[] hb = Encoding.ASCII.GetBytes(head);
         ns.Write(hb, 0, hb.Length);
         ns.Write(body, 0, body.Length);
@@ -380,6 +378,11 @@ public static class PhoneRemoteServer
         {
             string page = File.ReadAllText(htmlPath, Encoding.UTF8).Replace("__TOKEN__", token);
             Send(ns, 200, "text/html; charset=utf-8", Encoding.UTF8.GetBytes(page));
+            return;
+        }
+        if (method == "GET" && path == "/token" && h.ContainsKey("x-pr"))
+        {
+            SendJson(ns, 200, "{\"token\":\"" + token + "\"}");
             return;
         }
         if (!Authed(h)) { SendJson(ns, 401, "{\"error\":\"bad token\"}"); return; }
@@ -564,7 +567,7 @@ public static class PhoneRemoteServer
 '@
 
 try {
-    Add-Type -TypeDefinition $source -ReferencedAssemblies System.Drawing, System.Windows.Forms
+    Add-Type -TypeDefinition $source -ReferencedAssemblies System.Drawing, System.Windows.Forms -IgnoreWarnings
 } catch {
     Write-Host ""
     Write-Host "Could not start PhoneRemote:" -ForegroundColor Red

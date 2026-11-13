@@ -105,7 +105,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 (() => {
-  const TOKEN = '__TOKEN__';
+  let TOKEN = '__TOKEN__';
   const PHONE_URL = 'https://kuko30tuber-hash.github.io/phone-remote/';
   const $ = id => document.getElementById(id);
   const store = {
@@ -141,20 +141,33 @@
   showCode();
 
   // ---------------------------------------------------------- local helper (the PowerShell window)
-  async function api(path, body) {
-    const r = await fetch(path, {
-      method: body ? 'POST' : 'GET',
-      headers: { 'X-Token': TOKEN, 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!r.ok) throw new Error('helper ' + r.status);
+  async function rawApi(path, body) {
+    let r;
+    try {
+      r = await fetch(path, {
+        method: body ? 'POST' : 'GET',
+        headers: { 'X-Token': TOKEN, 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch (e) { const err = new Error('not running'); err.down = true; throw err; }
+    if (!r.ok) { const err = new Error('error ' + r.status); err.status = r.status; throw err; }
     return r.json();
+  }
+  async function api(path, body) {
+    try { return await rawApi(path, body); }
+    catch (e) {
+      if (e.status !== 401) throw e;
+      // PhoneRemote was restarted: pick up its new key and try again
+      const t = await fetch('/token', { headers: { 'X-PR': '1' } }).then(r => r.json());
+      TOKEN = t.token;
+      return rawApi(path, body);
+    }
   }
   let helperDown = false;
   function setHelperDown(down) {
     if (down === helperDown) return;
     helperDown = down;
-    if (down) status('The PhoneRemote window on this PC was closed. Start it again, then refresh this page.', 'bad');
+    if (down) status('The black PhoneRemote window isn\'t responding. Double-click "Start PhoneRemote" again.', 'bad');
     else refreshStatus();
   }
   let info = null;
@@ -326,17 +339,33 @@
     if (pumping || !inputQueue.length) return;
     pumping = true;
     const events = inputQueue; inputQueue = [];
-    let reply = null;
+    let reply = null, why = '';
     for (let attempt = 0; attempt < 2 && !reply; attempt++) {
-      try { reply = await api('/input', events); } catch (e) { reply = null; }
+      try { reply = await api('/input', events); } catch (e) { reply = null; why = e.message; }
     }
     setHelperDown(!reply);
-    if (phone && phone.open) phone.send(reply ? Object.assign({ type: 'cursor' }, reply) : { type: 'cursor', error: 'The PhoneRemote window on the PC was closed.' });
+    if (phone && phone.open) phone.send(reply ? Object.assign({ type: 'cursor' }, reply)
+      : { type: 'cursor', error: 'The black PhoneRemote window on your PC isn\'t responding (' + why + '). Close it and double-click "Start PhoneRemote" again.' });
     pumping = false;
     if (inputQueue.length) pump();
   }
 
-  startPeer();
+  let retired = false;
+  try {
+    const bc = new BroadcastChannel('phoneremote-pc');
+    bc.onmessage = ev => {
+      if (ev.data !== 'hello' || retired) return;
+      retired = true;
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      if (phone) { try { phone.close(); } catch (e) {} }
+      if (peer) peer.destroy();
+      document.body.innerHTML = '<div style="text-align:center;color:#8e8e9a;font:16px Segoe UI,sans-serif;padding:40px">' +
+        '<h2 style="color:#ededf2">PhoneRemote is open in another tab</h2>You can close this tab.</div>';
+    };
+    bc.postMessage('hello');
+  } catch (e) {}
+
+  setTimeout(() => { if (!retired) startPeer(); }, 400);   // give an older tab a moment to let go
   refreshStatus();
   window.addEventListener('beforeunload', e => { if (stream) { e.preventDefault(); e.returnValue = ''; } });
 })();

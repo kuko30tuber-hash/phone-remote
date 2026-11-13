@@ -370,7 +370,8 @@
           case 'waiting': video.srcObject = null; setLive(false); msg('Screen sharing stopped', 'Click <b>Start sharing</b> on your PC to continue.', false); break;
           case 'pong': gotPong(d.t); break;
           case 'cursor':
-            if (d.error) { msg('PC helper closed', d.error, false); break; }
+            if (d.error) { msg('Your PC isn\'t responding', d.error, false); break; }
+            if ($('msgTitle').textContent === 'Your PC isn\'t responding') msg('');
             if (d.cx != null && !(mode === 'pad' && g && g.moved)) { lc.x = d.cx; lc.y = d.cy; }
             break;
         }
